@@ -16,6 +16,8 @@
     !close              stop voting early
     !win / !lose        show whether chat was right
     !goal 300           change the subscriber goal for this stream
+    !testsub            test: fake +1 subscriber (toast + chime); the next real check corrects it
+  &sound=0 mutes the subscriber chime.
   The page is transparent and draws only small boxes, so the game stays visible.
 -->
 <style>
@@ -91,6 +93,27 @@
   const CHANNEL = P.get('ch') || 'UCQwQP5w9J6kIuN7tw7f952A';
   const DEMO = P.get('demo') === '1';
   let goal = +P.get('goal') || 250;
+  const SOUND = P.get('sound') !== '0';   // &sound=0 mutes the subscriber chime
+
+  /* short two-note chime made in code (no audio file, no copyright) */
+  let actx = null;
+  function chime() {
+    if (!SOUND) return;
+    try {
+      actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+      if (actx.state === 'suspended') actx.resume();
+      const t0 = actx.currentTime + 0.02;
+      [[1046.5, 0], [1568, 0.14], [2093, 0.28]].forEach(([f, d]) => {
+        const o = actx.createOscillator(), g = actx.createGain();
+        o.type = 'triangle'; o.frequency.value = f;
+        g.gain.setValueAtTime(0, t0 + d);
+        g.gain.linearRampToValueAtTime(0.28, t0 + d + 0.015);
+        g.gain.exponentialRampToValueAtTime(0.0008, t0 + d + 0.55);
+        o.connect(g).connect(actx.destination);
+        o.start(t0 + d); o.stop(t0 + d + 0.6);
+      });
+    } catch (_) {}
+  }
   const API = 'https://www.googleapis.com/youtube/v3/';
   const $ = id => document.getElementById(id);
   const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -180,6 +203,7 @@
     else if (cmd === '!close') closePred();
     else if (cmd === '!win' || cmd === '!lose') resolvePred(cmd === '!win');
     else if (cmd === '!goal' && +arg > 0) { goal = +arg; drawGoal(); }
+    else if (cmd === '!testsub' && subs != null) setSubs(subs + 1);   // test only: the next real check corrects the number
   }
   function openPred(sec) {
     pred.open = true; pred.votes.clear(); pred.until = Date.now() + sec * 1000;
@@ -230,6 +254,7 @@
   function setSubs(n) {
     // With StreamElements on, it shows the big named alert; ours becomes a small counter toast so nothing doubles up.
     if (subs != null && n > subs) {
+      chime();
       if (SE) toast('🎉 +1 subscriber', `${n} / ${goal}`, '', 4000);
       else toast('🎉 NEW SUBSCRIBER!', `Thank you! · ${n} / ${goal}`, 'sub', 6500);
     }
