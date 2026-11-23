@@ -120,7 +120,7 @@
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const store = { get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (_) { return d; } },
                   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (_) {} } };
-  const status = t => { const s = $('status'); s.textContent = t; s.style.display = (P.get('debug') === '1' || DEMO) ? 'block' : 'none'; if (P.get('debug') === '1') { s.style.fontSize = '20px'; s.style.opacity = '1'; s.style.top = '240px'; } };
+  const status = t => { const s = $('status'); s.textContent = t + (P.get('debug') === '1' ? (window.__se ? ' · SE on' : ' · SE off') : ''); s.style.display = (P.get('debug') === '1' || DEMO) ? 'block' : 'none'; if (P.get('debug') === '1') { s.style.fontSize = '20px'; s.style.opacity = '1'; s.style.top = '240px'; } };
   addEventListener('error', e => status('JS error: ' + (e.message || e.type)));
   addEventListener('unhandledrejection', e => status('JS error: ' + ((e.reason && e.reason.message) || e.reason)));
 
@@ -246,6 +246,8 @@
   }
   /* StreamElements alerts (named subscribers) embedded in this page; ShadowStream has only one widget slot */
   const SE = (() => { try { const u = new URL(P.get('se') || ''); return u.protocol === 'https:' && /(^|\.)streamelements\.com$/.test(u.hostname) ? u.href : ''; } catch (_) { return ''; } })();
+  window.__se = !!SE;
+  if (P.get('se') && !SE) window.__se = false, setTimeout(() => status('SE link not accepted (must start with https://streamelements.com/)'), 3000);
   if (SE) {
     const W = +P.get('sew') || 1920, H = +P.get('seh') || 1080, s = 1280 / W;
     const f = document.createElement('iframe');
