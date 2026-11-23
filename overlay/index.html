@@ -244,7 +244,9 @@
     const pl = await api('playlistItems', { part: 'contentDetails', playlistId: uploads, maxResults: 25 });
     const ids = pl.items.map(i => i.contentDetails.videoId).join(',');
     const v = await api('videos', { part: 'liveStreamingDetails', id: ids });
-    const live = v.items.find(i => i.liveStreamingDetails && i.liveStreamingDetails.activeLiveChatId && !i.liveStreamingDetails.actualEndTime);
+    // Upcoming scheduled streams also have an open chat, so only take one that has actually started and not ended.
+    const live = v.items.filter(i => { const d = i.liveStreamingDetails; return d && d.activeLiveChatId && d.actualStartTime && !d.actualEndTime; })
+      .sort((a, b) => Date.parse(b.liveStreamingDetails.actualStartTime) - Date.parse(a.liveStreamingDetails.actualStartTime))[0];
     return live && live.liveStreamingDetails.activeLiveChatId;
   }
   async function pollChat() {
