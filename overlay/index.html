@@ -120,7 +120,9 @@
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const store = { get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (_) { return d; } },
                   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (_) {} } };
-  const status = t => { const s = $('status'); s.textContent = t; s.style.display = (P.get('debug') === '1' || DEMO) ? 'block' : 'none'; };
+  const status = t => { const s = $('status'); s.textContent = t; s.style.display = (P.get('debug') === '1' || DEMO) ? 'block' : 'none'; if (P.get('debug') === '1') { s.style.fontSize = '20px'; s.style.opacity = '1'; s.style.top = '240px'; } };
+  addEventListener('error', e => status('JS error: ' + (e.message || e.type)));
+  addEventListener('unhandledrejection', e => status('JS error: ' + ((e.reason && e.reason.message) || e.reason)));
 
   /* ---------- layout: horizontal 1280×720 (game on top, ShadowStream panel 144 px at the bottom)
                  or vertical 1280×2276 (game on top, free middle, panel in the bottom 35%) ---------- */
@@ -298,19 +300,23 @@
       if (!chatId) { status('waiting for the live stream…'); await sleep(60000); }
     }
     status('chat connected');
-    let token = '', first = true;
+    let token = '', first = true, polls = 0, total = 0;
     for (;;) {
       try {
         const j = await api('liveChat/messages', { liveChatId: chatId, part: 'snippet,authorDetails', maxResults: 200, ...(token ? { pageToken: token } : {}) });
         token = j.nextPageToken;
         const items = j.items || [];
+        polls++; total += items.length;
+        status(`chat ✓ …${chatId.slice(-6)} · poll ${polls} · got ${items.length} (total ${total})` + (items.length ? ` · last: ${(items[items.length - 1].snippet.type || '').replace('Event', '')}` : ''));
         const fresh = first ? items.slice(-3) : items;   // on connect, show only the last 3 without welcomes
         for (const it of fresh) {
           const s = it.snippet, a = it.authorDetails;
           if (s.type !== 'textMessageEvent' && s.type !== 'superChatEvent') continue;
           const m = { id: a.channelId, name: a.displayName, text: s.displayMessage, owner: a.isChatOwner, mod: a.isChatModerator };
-          if (first) { seen.add(m.id); if (!(m.owner || m.mod) || !m.text.startsWith('!')) chatLine(m.name, m.text, m.owner ? 'owner' : m.mod ? 'mod' : ''); }
-          else handle(m);
+          try {
+            if (first) { seen.add(m.id); if (!(m.owner || m.mod) || !m.text.startsWith('!')) chatLine(m.name, m.text, m.owner ? 'owner' : m.mod ? 'mod' : ''); }
+            else handle(m);
+          } catch (err) { status('render error: ' + err.message); }
         }
         if (first) { items.forEach(it => seen.add(it.authorDetails.channelId)); store.set('ls_seen', [...seen].slice(-5000)); first = false; }
         await sleep(Math.max(+j.pollingIntervalMillis || 0, 9000));   // ≥9 s keeps a 3–4 h stream inside the free daily quota
