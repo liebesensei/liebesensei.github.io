@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280">
+<meta name="robots" content="noindex, nofollow">
+<title>Liebe Sensei stream overlay</title>
+<!--
+  ShadowStream browser-widget overlay (23 Nov 2026, PC 2).
+  Paste into ShadowStream → Alerts → widget URL:
+    https://liebesensei.github.io/overlay/?k=YOUR_API_KEY
+  Options: &goal=250  &v=VIDEO_ID (force a stream)  &demo=1 (fake chat for testing)
+  Chat commands (channel owner or moderators):
+    !predict [seconds]  open WIN/LOSE voting (viewers type 1 or 2; default 180 s)
+    !close              stop voting early
+    !win / !lose        show whether chat was right
+    !goal 300           change the subscriber goal for this stream
+  The page is transparent and draws only small boxes, so the game stays visible.
+-->
+<style>
+  :root { --gold:#ffc61a; --gold2:#ffdf6e; --ink:#fff; --void:rgba(8,8,16,.82); --cyan:#5fe3ff; --red:#ff3b55; --green:#2fe07a; }
+  html, body { margin:0; background:transparent; overflow:hidden; }
+  body { font-family:"Exo 2","Segoe UI",Roboto,"Noto Sans Malayalam","Nirmala UI",sans-serif; color:var(--ink); }
+  #root { position:relative; width:1280px; }
+  .box { position:absolute; background:var(--void); border-radius:12px; box-shadow:0 0 0 2px rgba(255,198,26,.55), 0 6px 18px rgba(0,0,0,.45); }
+
+  /* subscriber goal */
+  #goal { left:8px; padding:6px 10px 7px; width:236px; font-size:15px; font-weight:700; letter-spacing:.3px; }
+  #goal .row { display:flex; justify-content:space-between; }
+  #goal .bar { margin-top:5px; height:8px; border-radius:6px; background:rgba(255,255,255,.15); overflow:hidden; }
+  #goal .fill { height:100%; width:0; background:linear-gradient(90deg,var(--gold),var(--gold2)); transition:width 1.2s ease; }
+
+  /* chat */
+  #chat { left:8px; width:300px; padding:8px 10px; display:flex; flex-direction:column; justify-content:flex-end; gap:5px; overflow:hidden; }
+  #chat:empty { display:none; }
+  .msg { font-size:17px; line-height:1.28; animation:in .35s ease both; overflow-wrap:anywhere; text-shadow:0 1px 2px #000; }
+  .msg b { color:var(--gold); font-weight:700; }
+  .msg.mod b { color:var(--cyan); }
+  .msg.owner b { color:#ff8a3d; }
+  .msg.old { opacity:.55; }
+  @keyframes in { from { opacity:0; transform:translateX(-14px); } to { opacity:1; transform:none; } }
+
+  /* prediction */
+  #pred { left:8px; width:300px; padding:9px 12px 10px; display:none; }
+  #pred.on { display:block; animation:in .35s ease both; }
+  #pred .t { font-size:16px; font-weight:800; color:var(--gold); display:flex; justify-content:space-between; }
+  #pred .q { font-size:14px; opacity:.85; margin:2px 0 6px; }
+  #pred .bars { display:flex; height:26px; border-radius:7px; overflow:hidden; font-size:14px; font-weight:800; }
+  #pred .w { background:var(--green); color:#03200e; display:flex; align-items:center; padding-left:8px; white-space:nowrap; transition:flex-grow .6s; }
+  #pred .l { background:var(--red); color:#2a0008; display:flex; align-items:center; justify-content:flex-end; padding-right:8px; white-space:nowrap; transition:flex-grow .6s; }
+  #pred .n { font-size:13px; opacity:.8; margin-top:5px; display:flex; justify-content:space-between; }
+  #pred .res { font-size:20px; font-weight:900; text-align:center; margin-top:6px; display:none; }
+
+  /* pop-ups */
+  #pop { position:absolute; left:50%; transform:translateX(-50%); display:flex; flex-direction:column; align-items:center; gap:8px; pointer-events:none; }
+  .toast { background:var(--void); border-radius:14px; padding:10px 22px 11px; text-align:center; box-shadow:0 0 0 2px var(--gold), 0 8px 26px rgba(0,0,0,.5); animation:pop .45s cubic-bezier(.2,1.4,.4,1) both; white-space:nowrap; }
+  .toast .h { font-size:22px; font-weight:900; color:var(--gold); }
+  .toast .s { font-size:16px; margin-top:2px; }
+  .toast.sub { box-shadow:0 0 0 3px var(--red), 0 0 40px rgba(255,59,85,.6); padding:14px 34px; }
+  .toast.sub .h { font-size:30px; color:#fff; }
+  .toast.out { animation:out .4s ease both; }
+  @keyframes pop { from { opacity:0; transform:scale(.6) translateY(-10px); } to { opacity:1; transform:none; } }
+  @keyframes out { to { opacity:0; transform:translateY(-12px); } }
+
+  #status { position:absolute; right:8px; font-size:12px; opacity:.6; background:rgba(0,0,0,.5); padding:2px 6px; border-radius:6px; display:none; }
+</style>
+</head>
+<body>
+<div id="root">
+  <div id="goal" class="box"><div class="row"><span>🎯 SUBSCRIBER GOAL</span><span id="gnum">–</span></div><div class="bar"><div class="fill" id="gfill"></div></div></div>
+  <div id="pred" class="box">
+    <div class="t"><span>🔮 PREDICT THE MATCH</span><span id="ptime"></span></div>
+    <div class="q">Type <b>1</b> = WIN 🏆 &nbsp;·&nbsp; <b>2</b> = LOSE 💀</div>
+    <div class="bars"><div class="w" id="pw">WIN 50%</div><div class="l" id="pl">50% LOSE</div></div>
+    <div class="n"><span id="pn">0 votes</span><span id="pst">voting open</span></div>
+    <div class="res" id="pres"></div>
+  </div>
+  <div id="chat" class="box"></div>
+  <div id="pop"></div>
+  <div id="status"></div>
+</div>
+<script>
+(() => {
+  'use strict';
+  const P = new URLSearchParams(location.search);
+  const KEY = P.get('k') || '';
+  const CHANNEL = P.get('ch') || 'UCQwQP5w9J6kIuN7tw7f952A';
+  const DEMO = P.get('demo') === '1';
+  let goal = +P.get('goal') || 250;
+  const API = 'https://www.googleapis.com/youtube/v3/';
+  const $ = id => document.getElementById(id);
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const store = { get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (_) { return d; } },
+                  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (_) {} } };
+  const status = t => { const s = $('status'); s.textContent = t; s.style.display = (P.get('debug') === '1' || DEMO) ? 'block' : 'none'; };
+
+  /* ---------- layout: horizontal 1280×720 (game on top, ShadowStream panel 144 px at the bottom)
+                 or vertical 1280×2276 (game on top, free middle, panel in the bottom 35%) ---------- */
+  function layout() {
+    const W = innerWidth || 1280, H = innerHeight || 720;
+    const h = H * 1280 / W;                       // height in our 1280-wide CSS space
+    $('root').style.height = h + 'px';
+    const vertical = h > 1000;
+    const g = $('goal').style, c = $('chat').style, p = $('pred').style, pop = $('pop').style, st = $('status').style;
+    st.top = '6px';
+    if (!vertical) {
+      // under the minimap; chat + prediction in the grass area bottom-left, above the app panel
+      const panelTop = h - 144;
+      g.top = '190px';
+      c.bottom = (h - panelTop + 6) + 'px'; c.top = 'auto'; c.maxHeight = "120px"; c.width = '300px';
+      p.bottom = (h - panelTop + 6 + 156) + 'px'; p.top = 'auto';
+      pop.top = '58px';
+    } else {
+      const gameBottom = 1280 / (20 / 9) + 8;     // ~584 for a 20:9 phone
+      const panelTop = h * 0.65;
+      const free = panelTop - gameBottom;
+      g.top = (gameBottom + 14) + 'px'; g.left = '40px'; g.width = '1160px'; g.fontSize = '30px';
+      document.querySelector('#goal .bar').style.height = '16px';
+      p.top = (gameBottom + 110) + 'px'; p.left = '40px'; p.width = '1160px'; p.fontSize = '';
+      $('pred').classList.add('big');
+      c.top = (gameBottom + 430) + 'px'; c.bottom = 'auto'; c.left = '40px'; c.width = '1160px';
+      c.maxHeight = '230px';
+      pop.top = (gameBottom + 690) + 'px';
+      document.body.classList.add('vert');
+    }
+  }
+  const vcss = document.createElement('style');
+  vcss.textContent = `.vert .msg{font-size:34px}.vert .toast .h{font-size:44px}.vert .toast .s{font-size:30px}.vert .toast.sub .h{font-size:56px}
+    .vert #pred .t{font-size:32px}.vert #pred .q{font-size:28px}.vert #pred .bars{height:52px;font-size:28px}.vert #pred .n{font-size:24px}.vert #pred .res{font-size:40px}`;
+  document.head.appendChild(vcss);
+  addEventListener('resize', layout); layout();
+
+  /* ---------- pop-ups (queued) ---------- */
+  const queue = []; let showing = 0;
+  function toast(h, s, cls = '', ms = 5000) { queue.push({ h, s, cls, ms }); pump(); }
+  function pump() {
+    if (showing >= 2 || !queue.length) return;
+    const t = queue.shift(); showing++;
+    const el = document.createElement('div'); el.className = 'toast ' + t.cls;
+    el.innerHTML = `<div class="h">${t.h}</div>${t.s ? `<div class="s">${t.s}</div>` : ''}`;
+    $('pop').appendChild(el);
+    setTimeout(() => { el.classList.add('out'); setTimeout(() => { el.remove(); showing--; pump(); }, 400); }, t.ms);
+  }
+
+  /* ---------- chat ---------- */
+  const seen = new Set(store.get('ls_seen', []));
+  function chatLine(name, text, role) {
+    const box = $('chat');
+    const el = document.createElement('div'); el.className = 'msg ' + (role || '');
+    el.innerHTML = `<b>${esc(name)}</b> ${esc(text)}`;
+    box.appendChild(el);
+    while (box.children.length > 4) box.firstChild.remove();
+    [...box.children].forEach((m, i, a) => m.classList.toggle("old", i < a.length - 2));
+    clearTimeout(box._t); box.style.opacity = 1;
+    box._t = setTimeout(() => { box.style.transition = 'opacity 1.5s'; box.style.opacity = 0; setTimeout(() => { box.innerHTML = ''; box.style.opacity = 1; box.style.transition = ''; }, 1600); }, 90000);
+  }
+  function handle(m) {
+    const name = m.name.replace(/^@/, ''), text = (m.text || '').trim();
+    const role = m.owner ? 'owner' : (m.mod ? 'mod' : '');
+    const boss = m.owner || m.mod;
+    if (boss && text.startsWith('!')) return command(text.toLowerCase());
+    if (pred.open && /^[12]$/.test(text)) { vote(m.id, text === '1'); return; }
+    if (!m.owner && m.id && !seen.has(m.id)) {
+      seen.add(m.id); store.set('ls_seen', [...seen].slice(-5000));
+      toast(`👋 Welcome, ${esc(name)}!`, 'ആദ്യമായി വന്നതിന് നന്ദി · Ask WHY in chat!');
+    }
+    if (text) chatLine(name, text, role);
+  }
+
+  /* ---------- prediction ---------- */
+  const pred = { open: false, votes: new Map(), until: 0, timer: 0 };
+  function command(t) {
+    const [cmd, arg] = t.split(/\s+/);
+    if (cmd === '!predict') openPred(+arg || 180);
+    else if (cmd === '!close') closePred();
+    else if (cmd === '!win' || cmd === '!lose') resolvePred(cmd === '!win');
+    else if (cmd === '!goal' && +arg > 0) { goal = +arg; drawGoal(); }
+  }
+  function openPred(sec) {
+    pred.open = true; pred.votes.clear(); pred.until = Date.now() + sec * 1000;
+    $('pres').style.display = 'none'; $('pst').textContent = 'voting open';
+    $('pred').classList.add('on'); drawPred();
+    clearInterval(pred.timer);
+    pred.timer = setInterval(() => { const s = Math.max(0, Math.round((pred.until - Date.now()) / 1000)); $('ptime').textContent = s ? `⏱ ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : ''; if (!s) closePred(); }, 500);
+    toast('🔮 PREDICTION OPEN', 'Type 1 = WIN · 2 = LOSE', '', 4500);
+  }
+  function closePred() { if (!pred.open) return; pred.open = false; clearInterval(pred.timer); $('ptime').textContent = '🔒'; $('pst').textContent = 'voting closed · waiting for result'; }
+  function vote(id, win) { pred.votes.set(id || Math.random(), win); drawPred(); }
+  function counts() { let w = 0, l = 0; pred.votes.forEach(v => v ? w++ : l++); return { w, l, n: w + l }; }
+  function drawPred() {
+    const { w, l, n } = counts(); const wp = n ? Math.round(w * 100 / n) : 50;
+    $('pw').style.flexGrow = Math.max(wp, 12); $('pl').style.flexGrow = Math.max(100 - wp, 12);
+    $('pw').textContent = `WIN ${wp}%`; $('pl').textContent = `${100 - wp}% LOSE`;
+    $('pn').textContent = `${n} vote${n === 1 ? '' : 's'}`;
+  }
+  function resolvePred(win) {
+    closePred();
+    const { w, l, n } = counts();
+    const chatSaid = w === l ? null : w > l;
+    const r = $('pres'); r.style.display = 'block';
+    $('pst').textContent = win ? 'RESULT: WIN 🏆' : 'RESULT: LOSE 💀';
+    if (!n) r.textContent = 'No votes this time';
+    else if (chatSaid === null) r.textContent = 'Chat was split 50/50 🤝';
+    else r.innerHTML = chatSaid === win ? '<span style="color:var(--green)">Chat was RIGHT ✅</span>' : '<span style="color:var(--red)">Chat was WRONG ❌</span>';
+    toast(win ? '🏆 WIN!' : '💀 LOSS', n ? (chatSaid === null ? 'Chat was split' : (chatSaid === win ? 'Chat was RIGHT ✅' : 'Chat was WRONG ❌')) : '', '', 6000);
+    setTimeout(() => $('pred').classList.remove('on'), 15000);
+  }
+
+  /* ---------- subscriber goal ---------- */
+  let subs = store.get('ls_subs', null);
+  function drawGoal() {
+    if (subs == null) return;
+    $('gnum').textContent = `${subs} / ${goal}`;
+    $('gfill').style.width = Math.min(100, subs * 100 / goal) + '%';
+  }
+  function setSubs(n) {
+    if (subs != null && n > subs) toast('🎉 NEW SUBSCRIBER!', `Thank you! · ${n} / ${goal}`, 'sub', 6500);
+    subs = n; store.set('ls_subs', n); drawGoal();
+  }
+  drawGoal();
+
+  /* ---------- YouTube Data API ---------- */
+  async function api(path, params) {
+    const u = new URL(API + path); Object.entries({ ...params, key: KEY }).forEach(([k, v]) => u.searchParams.set(k, v));
+    const r = await fetch(u, { referrerPolicy: 'strict-origin-when-cross-origin' });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { const e = new Error((j.error && j.error.errors && j.error.errors[0] && j.error.errors[0].reason) || r.status); e.status = r.status; throw e; }
+    return j;
+  }
+  async function pollSubs() {
+    for (;;) {
+      try { const j = await api('channels', { part: 'statistics', id: CHANNEL }); const n = +j.items[0].statistics.subscriberCount; if (n) setSubs(n); }
+      catch (e) { status('subs: ' + e.message); }
+      await sleep(90000);
+    }
+  }
+  async function findLiveChat() {
+    if (P.get('v')) {
+      const j = await api('videos', { part: 'liveStreamingDetails', id: P.get('v') });
+      return j.items[0] && j.items[0].liveStreamingDetails && j.items[0].liveStreamingDetails.activeLiveChatId;
+    }
+    const uploads = 'UU' + CHANNEL.slice(2);
+    const pl = await api('playlistItems', { part: 'contentDetails', playlistId: uploads, maxResults: 25 });
+    const ids = pl.items.map(i => i.contentDetails.videoId).join(',');
+    const v = await api('videos', { part: 'liveStreamingDetails', id: ids });
+    const live = v.items.find(i => i.liveStreamingDetails && i.liveStreamingDetails.activeLiveChatId && !i.liveStreamingDetails.actualEndTime);
+    return live && live.liveStreamingDetails.activeLiveChatId;
+  }
+  async function pollChat() {
+    let chatId = null;
+    while (!chatId) {
+      try { chatId = await findLiveChat(); } catch (e) { status('find: ' + e.message); }
+      if (!chatId) { status('waiting for the live stream…'); await sleep(60000); }
+    }
+    status('chat connected');
+    let token = '', first = true;
+    for (;;) {
+      try {
+        const j = await api('liveChat/messages', { liveChatId: chatId, part: 'snippet,authorDetails', maxResults: 200, ...(token ? { pageToken: token } : {}) });
+        token = j.nextPageToken;
+        const items = j.items || [];
+        const fresh = first ? items.slice(-3) : items;   // on connect, show only the last 3 without welcomes
+        for (const it of fresh) {
+          const s = it.snippet, a = it.authorDetails;
+          if (s.type !== 'textMessageEvent' && s.type !== 'superChatEvent') continue;
+          const m = { id: a.channelId, name: a.displayName, text: s.displayMessage, owner: a.isChatOwner, mod: a.isChatModerator };
+          if (first) { seen.add(m.id); if (!(m.owner || m.mod) || !m.text.startsWith('!')) chatLine(m.name, m.text, m.owner ? 'owner' : m.mod ? 'mod' : ''); }
+          else handle(m);
+        }
+        if (first) { items.forEach(it => seen.add(it.authorDetails.channelId)); store.set('ls_seen', [...seen].slice(-5000)); first = false; }
+        await sleep(Math.max(+j.pollingIntervalMillis || 0, 9000));   // ≥9 s keeps a 3–4 h stream inside the free daily quota
+      } catch (e) {
+        status('chat: ' + e.message);
+        if (/liveChatEnded|liveChatNotFound|forbidden/i.test(e.message)) { await sleep(60000); return pollChat(); }
+        await sleep(20000);
+      }
+    }
+  }
+
+  /* ---------- demo mode (no key needed) ---------- */
+  async function demo() {
+    status('DEMO MODE');
+    subs = subs || 202; drawGoal();
+    const fake = [['Arjun_K', 'bro which build for kongming?'], ['Nikhil 07', 'hii sensei 👋'], ['Rahul.mallu', 'jungle path kaanikku'], ['Fathima', '1'], ['Akhil', 'nice gank 🔥']];
+    let i = 0;
+    const tick = () => { const [n, t] = fake[i++ % fake.length]; handle({ id: 'demo' + (i % 7), name: n, text: t }); };
+    tick(); setInterval(tick, 4000);
+    setTimeout(() => handle({ id: 'own', name: 'Liebe Sensei', text: '!predict 40', owner: true }), 6000);
+    setInterval(() => { if (pred.open) for (let k = 0; k < 2; k++) vote('v' + Math.random(), Math.random() > .35); }, 1500);
+    setTimeout(() => handle({ id: 'own', name: 'Liebe Sensei', text: '!win', owner: true }), 30000);
+    setTimeout(() => setSubs(subs + 1), 12000);
+  }
+
+  if (DEMO) demo();
+  else if (!KEY) status('Add ?k=YOUR_API_KEY to the URL');
+  else { pollSubs(); pollChat(); }
+})();
+</script>
+</body>
+</html>
