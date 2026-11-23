@@ -177,7 +177,7 @@
   function chatLine(name, text, role) {
     const box = $('chat');
     const el = document.createElement('div'); el.className = 'msg ' + (role || '');
-    el.innerHTML = `<b>${esc(name)}</b> ${esc(text)}`;
+    el.innerHTML = `<b>${esc(String(name).replace(/^@/, ''))}</b> ${esc(text)}`;
     box.appendChild(el);
     while (box.children.length > 4) box.firstChild.remove();
     [...box.children].forEach((m, i, a) => m.classList.toggle("old", i < a.length - 2));
