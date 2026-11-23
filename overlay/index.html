@@ -10,6 +10,7 @@
   Paste into ShadowStream → Alerts → widget URL:
     https://liebesensei.github.io/overlay/?k=YOUR_API_KEY
   Options: &goal=250  &v=VIDEO_ID (force a stream)  &demo=1 (fake chat for testing)
+           &se=STREAMELEMENTS_OVERLAY_URL (URL-encoded) shows StreamElements alerts (subscriber names) inside this page
   Chat commands (channel owner or moderators):
     !predict [seconds]  open WIN/LOSE voting (viewers type 1 or 2; default 180 s)
     !close              stop voting early
@@ -62,6 +63,8 @@
   @keyframes pop { from { opacity:0; transform:scale(.6) translateY(-10px); } to { opacity:1; transform:none; } }
   @keyframes out { to { opacity:0; transform:translateY(-12px); } }
 
+  #se { position:absolute; left:0; top:0; pointer-events:none; }
+  #se iframe { border:0; background:transparent; transform-origin:0 0; }
   #status { position:absolute; right:8px; font-size:12px; opacity:.6; background:rgba(0,0,0,.5); padding:2px 6px; border-radius:6px; display:none; }
 </style>
 </head>
@@ -77,6 +80,7 @@
   </div>
   <div id="chat" class="box"></div>
   <div id="pop"></div>
+  <div id="se"></div>
   <div id="status"></div>
 </div>
 <script>
@@ -214,8 +218,21 @@
     $('gnum').textContent = `${subs} / ${goal}`;
     $('gfill').style.width = Math.min(100, subs * 100 / goal) + '%';
   }
+  /* StreamElements alerts (named subscribers) embedded in this page; ShadowStream has only one widget slot */
+  const SE = (() => { try { const u = new URL(P.get('se') || ''); return u.protocol === 'https:' && /(^|\.)streamelements\.com$/.test(u.hostname) ? u.href : ''; } catch (_) { return ''; } })();
+  if (SE) {
+    const W = +P.get('sew') || 1920, H = +P.get('seh') || 1080, s = 1280 / W;
+    const f = document.createElement('iframe');
+    f.src = SE; f.width = W; f.height = H; f.style.transform = `scale(${s})`;
+    f.setAttribute('allow', 'autoplay'); f.setAttribute('scrolling', 'no');
+    $('se').appendChild(f);
+  }
   function setSubs(n) {
-    if (subs != null && n > subs) toast('🎉 NEW SUBSCRIBER!', `Thank you! · ${n} / ${goal}`, 'sub', 6500);
+    // With StreamElements on, it shows the big named alert; ours becomes a small counter toast so nothing doubles up.
+    if (subs != null && n > subs) {
+      if (SE) toast('🎉 +1 subscriber', `${n} / ${goal}`, '', 4000);
+      else toast('🎉 NEW SUBSCRIBER!', `Thank you! · ${n} / ${goal}`, 'sub', 6500);
+    }
     subs = n; store.set('ls_subs', n); drawGoal();
   }
   drawGoal();
