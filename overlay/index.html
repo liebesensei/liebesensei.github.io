@@ -123,7 +123,7 @@
   const P = new URLSearchParams(location.search);
   const KEY = P.get('k') || '';
   const CHANNEL = P.get('ch') || 'UCQwQP5w9J6kIuN7tw7f952A';
-  const DEMO = P.get('demo') === '1';
+  const DEMO = P.get('demo') === '1' || P.get('demo') === '2';   // demo=2: no result typed (tests the auto-close)
   let goal = +P.get('goal') || 250;
   const SOUND = P.get('sound') !== '0';   // &sound=0 mutes the subscriber chime
 
@@ -240,7 +240,7 @@
     const [cmd, arg] = t.split(/\s+/);
     if (cmd === '!predict') openPred(Math.max(30, +arg || 180));   // never shorter than 30 s
     else if (cmd === '!close') closePred();
-    else if (cmd === '!clear') { closePred(); pred.votes.clear(); $('pred').classList.remove('on'); }
+    else if (cmd === '!clear') { closePred(); clearTimeout(predHideT); pred.votes.clear(); $('pred').classList.remove('on'); }
     else if (cmd === '!win' || cmd === '!lose') resolvePred(cmd === '!win');
     else if (cmd === '!goal' && +arg > 0) { goal = +arg; drawGoal(); }
     else if (cmd === '!testsub' && subs != null) setSubs(subs + 1);   // test only: the next real check corrects the number
@@ -295,6 +295,7 @@
   if (+P.get('cdtest') > 0) cdStart(Date.now() + P.get('cdtest') * 1000, true);
   else { cdAuto(); setInterval(cdAuto, 20000); }
   function openPred(sec) {
+    clearTimeout(predHideT);   // a new prediction cancels any pending auto-close
     pred.open = true; pred.votes.clear(); pred.until = Date.now() + sec * 1000;
     $('pres').style.display = 'none'; $('pst').textContent = 'voting open';
     $('pred').classList.add('on'); drawPred();
@@ -302,7 +303,15 @@
     pred.timer = setInterval(() => { const s = Math.max(0, Math.round((pred.until - Date.now()) / 1000)); $('ptime').textContent = s ? `⏱ ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : ''; if (!s) closePred(); }, 500);
     toast('🔮 PREDICTION OPEN', 'Type 1 = WIN · 2 = LOSE', '', 4500);
   }
-  function closePred() { if (!pred.open) return; pred.open = false; clearInterval(pred.timer); $('ptime').textContent = '🔒'; $('pst').textContent = 'voting closed · waiting for result'; }
+  // One hide timer for the box, so an old timer never closes a newer prediction.
+  let predHideT = 0;
+  function hidePredLater(ms) { clearTimeout(predHideT); predHideT = setTimeout(() => $('pred').classList.remove('on'), ms); }
+  function closePred() {
+    if (!pred.open) return;
+    pred.open = false; clearInterval(pred.timer);
+    $('ptime').textContent = '🔒'; $('pst').textContent = 'voting closed · waiting for result';
+    hidePredLater(60000);   // auto-close the box 60 s after voting ends if no !win / !lose comes
+  }
   function vote(id, win) { pred.votes.set(id || Math.random(), win); drawPred(); }
   function counts() { let w = 0, l = 0; pred.votes.forEach(v => v ? w++ : l++); return { w, l, n: w + l }; }
   function drawPred() {
@@ -321,7 +330,8 @@
     else if (chatSaid === null) r.textContent = 'Chat was split 50/50 🤝';
     else r.innerHTML = chatSaid === win ? '<span style="color:var(--green)">Chat was RIGHT ✅</span>' : '<span style="color:var(--red)">Chat was WRONG ❌</span>';
     toast(win ? '🏆 WIN!' : '💀 LOSS', n ? (chatSaid === null ? 'Chat was split' : (chatSaid === win ? 'Chat was RIGHT ✅' : 'Chat was WRONG ❌')) : '', '', 6000);
-    setTimeout(() => $('pred').classList.remove('on'), 15000);
+    $('pred').classList.add('on');   // show the result even if the box had already auto-closed
+    hidePredLater(15000);
   }
 
   /* ---------- subscriber goal ---------- */
@@ -427,7 +437,7 @@
     tick(); setInterval(tick, 4000);
     setTimeout(() => handle({ id: 'own', name: 'Liebe Sensei', text: '!predict 40', owner: true }), 6000);
     setInterval(() => { if (pred.open) for (let k = 0; k < 2; k++) vote('v' + Math.random(), Math.random() > .35); }, 1500);
-    setTimeout(() => handle({ id: 'own', name: 'Liebe Sensei', text: '!win', owner: true }), 30000);
+    if (P.get('demo') === '1') setTimeout(() => handle({ id: 'own', name: 'Liebe Sensei', text: '!win', owner: true }), 30000);
     setTimeout(() => setSubs(subs + 1), 12000);
   }
 
