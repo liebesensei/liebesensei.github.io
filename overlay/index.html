@@ -17,7 +17,12 @@
     !win / !lose        show whether chat was right
     !goal 300           change the subscriber goal for this stream
     !testsub            test: fake +1 subscriber (toast + chime); the next real check corrects it
+    !countdown 5        start a 5-minute "starting soon" countdown now (chat reaches the page 30–50 s late)
+    !start              hide the countdown immediately
   &sound=0 mutes the subscriber chime.
+  Starting-soon countdown (added 24 Nov 2026, PC 1): shows automatically in the 30 minutes before 7:00 PM IST and
+  disappears at 7:00 ("LIVE NOW"). &cd=19:30 changes the time (IST), &cd=0 turns it off, &day=0 hides "PEAK DAY N",
+  &cdtest=90 forces a 90-second countdown for testing.
   The page is transparent and draws only small boxes, so the game stays visible.
 -->
 <style>
@@ -65,6 +70,26 @@
   @keyframes pop { from { opacity:0; transform:scale(.6) translateY(-10px); } to { opacity:1; transform:none; } }
   @keyframes out { to { opacity:0; transform:translateY(-12px); } }
 
+  /* starting-soon countdown */
+  #cd { position:absolute; left:0; top:0; width:1280px; display:none; align-items:flex-start; justify-content:center; box-sizing:border-box; padding-top:118px; background:rgba(6,6,14,.62); }
+  body:not(.vert).cdon #pop { top:8px !important; }   /* keep welcome pop-ups above the card */
+  #cd.on { display:flex; animation:fade .6s ease both; }
+  #cd.out { animation:fadeout .8s ease both; }
+  #cd .card { text-align:center; padding:22px 54px 24px; border-radius:20px; background:var(--void); box-shadow:0 0 0 3px var(--gold), 0 0 60px rgba(255,198,26,.35); }
+  #cd .day { font-size:22px; font-weight:900; letter-spacing:3px; color:#111; background:var(--gold); display:inline-block; padding:3px 14px; border-radius:6px; }
+  #cd .lbl { font-size:30px; font-weight:900; letter-spacing:4px; margin-top:10px; }
+  #cd .time { font-size:118px; font-weight:900; line-height:1; color:var(--gold); font-variant-numeric:tabular-nums; text-shadow:0 0 30px rgba(255,198,26,.45); margin:6px 0 4px; }
+  #cd .ml { font-size:26px; font-weight:700; }
+  #cd .hi { font-size:20px; opacity:.85; margin-top:6px; }
+  #cd.go .time { font-size:84px; color:#fff; animation:pop .5s cubic-bezier(.2,1.4,.4,1) both; }
+  @keyframes fade { from { opacity:0; } to { opacity:1; } }
+  @keyframes fadeout { to { opacity:0; } }
+  /* vertical: the card sits in the game area at the top; the widgets below stay visible */
+  .vert #cd { padding-top:28px; }
+  .vert #cd .card { padding:24px 70px 28px; }
+  .vert #cd .day { font-size:32px; } .vert #cd .lbl { font-size:42px; } .vert #cd .time { font-size:170px; }
+  .vert #cd .ml { font-size:38px; } .vert #cd .hi { font-size:30px; } .vert #cd.go .time { font-size:120px; }
+
   #se { position:absolute; left:0; top:0; pointer-events:none; }
   #se iframe { border:0; background:transparent; transform-origin:0 0; }
   #status { position:absolute; right:8px; font-size:12px; opacity:.6; background:rgba(0,0,0,.5); padding:2px 6px; border-radius:6px; display:none; }
@@ -72,6 +97,13 @@
 </head>
 <body>
 <div id="root">
+  <div id="cd"><div class="card">
+    <div class="day" id="cdday"></div>
+    <div class="lbl" id="cdlbl">STARTING SOON</div>
+    <div class="time" id="cdtime">0:00</div>
+    <div class="ml" id="cdml">7 PM-ന് തുടങ്ങും 🔥</div>
+    <div class="hi" id="cdhi">Chat-ൽ ഹായ് പറയൂ 👋 · Ask WHY anytime</div>
+  </div></div>
   <div id="goal" class="box"><div class="row"><span>🎯 SUBSCRIBER GOAL</span><span id="gnum">–</span></div><div class="bar"><div class="fill" id="gfill"></div></div></div>
   <div id="pred" class="box">
     <div class="t"><span>🔮 PREDICT THE MATCH</span><span id="ptime"></span></div>
@@ -131,6 +163,7 @@
     const h = H * 1280 / W;                       // height in our 1280-wide CSS space
     $('root').style.height = h + 'px';
     const vertical = h > 1000;
+    $('cd').style.height = (vertical ? 1280 / (20 / 9) + 8 : h - 144) + 'px';   // dim only the game area, not the app panel or widgets
     const g = $('goal').style, c = $('chat').style, p = $('pred').style, pop = $('pop').style, st = $('status').style;
     st.top = '6px';
     if (!vertical) {
@@ -164,7 +197,8 @@
   const queue = []; let showing = 0;
   function toast(h, s, cls = '', ms = 5000) { queue.push({ h, s, cls, ms }); pump(); }
   function pump() {
-    if (showing >= 2 || !queue.length) return;
+    const max = document.body.classList.contains('cdon') && !document.body.classList.contains('vert') ? 1 : 2;   // one at a time above the countdown card
+    if (showing >= max || !queue.length) return;
     const t = queue.shift(); showing++;
     const el = document.createElement('div'); el.className = 'toast ' + t.cls;
     el.innerHTML = `<div class="h">${t.h}</div>${t.s ? `<div class="s">${t.s}</div>` : ''}`;
@@ -206,7 +240,56 @@
     else if (cmd === '!win' || cmd === '!lose') resolvePred(cmd === '!win');
     else if (cmd === '!goal' && +arg > 0) { goal = +arg; drawGoal(); }
     else if (cmd === '!testsub' && subs != null) setSubs(subs + 1);   // test only: the next real check corrects the number
+    else if (cmd === '!countdown') cdStart(Date.now() + (+arg > 0 ? +arg : 5) * 60000, true);
+    else if (cmd === '!start') cdEnd(false);
   }
+
+  /* ---------- starting-soon countdown (shows in the 30 min before 7:00 PM IST) ---------- */
+  const IST = 5.5 * 3600000;
+  const cdParam = P.get('cd');
+  const cdOff = cdParam === '0';
+  const [cdH, cdM] = /^\d{1,2}:\d{2}$/.test(cdParam || '') ? cdParam.split(':').map(Number) : [19, 0];
+  const cd = { until: 0, timer: 0, manual: false, done: false };
+  function istTarget() {                       // today's start time (IST) as a UTC timestamp
+    const ist = new Date(Date.now() + IST);
+    return Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate(), cdH, cdM) - IST;
+  }
+  function peakDay() {                         // Peak Day 1 = 20 Nov 2026 (IST)
+    const d = Math.floor((Date.now() + IST - Date.UTC(2026, 10, 20)) / 86400000) + 1;
+    return d >= 1 && d <= 400 ? d : 0;
+  }
+  function cdStart(until, manual) {
+    cd.until = until; cd.manual = manual; cd.done = false;
+    const day = P.get('day') === '0' ? 0 : peakDay();
+    $('cdday').textContent = day ? `PEAK DAY ${day}` : ''; $('cdday').style.display = day ? '' : 'none';
+    $('cdlbl').textContent = 'STARTING SOON';
+    const t = new Date(until + IST), hh = t.getUTCHours(), mm = t.getUTCMinutes();
+    $('cdml').textContent = `${(hh % 12) || 12}${mm ? ':' + String(mm).padStart(2, '0') : ''} ${hh < 12 ? 'AM' : 'PM'}-ന് തുടങ്ങും 🔥`;
+    $('cdhi').style.display = '';
+    $('cd').classList.remove('go', 'out'); $('cd').classList.add('on'); document.body.classList.add('cdon');
+    clearInterval(cd.timer); cd.timer = setInterval(cdTick, 250); cdTick();
+  }
+  function cdTick() {
+    const s = Math.ceil((cd.until - Date.now()) / 1000);
+    if (s <= 0) return cdEnd(true);
+    $('cdtime').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  }
+  function cdEnd(showGo) {
+    clearInterval(cd.timer); cd.done = true;
+    const el = $('cd'); if (!el.classList.contains('on')) return;
+    const hide = () => { el.classList.add('out'); setTimeout(() => { el.classList.remove('on', 'out', 'go'); document.body.classList.remove('cdon'); }, 800); };
+    if (!showGo) return hide();
+    el.classList.add('go'); $('cdlbl').textContent = "LET'S GO!"; $('cdtime').textContent = 'LIVE NOW 🔥';
+    $('cdml').textContent = 'ഇനി തുടങ്ങാം! 🎮'; $('cdhi').style.display = 'none';
+    setTimeout(hide, 4000);
+  }
+  function cdAuto() {                          // runs once on load and every 20 s
+    if (cdOff || cd.manual || cd.done) return;
+    const target = istTarget(), left = target - Date.now();
+    if (left > 0 && left <= 30 * 60000 && !$('cd').classList.contains('on')) cdStart(target, false);
+  }
+  if (+P.get('cdtest') > 0) cdStart(Date.now() + P.get('cdtest') * 1000, true);
+  else { cdAuto(); setInterval(cdAuto, 20000); }
   function openPred(sec) {
     pred.open = true; pred.votes.clear(); pred.until = Date.now() + sec * 1000;
     $('pres').style.display = 'none'; $('pst').textContent = 'voting open';
