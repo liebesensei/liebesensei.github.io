@@ -222,6 +222,9 @@
     const name = m.name.replace(/^@/, ''), text = (m.text || '').trim();
     const role = m.owner ? 'owner' : (m.mod ? 'mod' : '');
     const boss = m.owner || m.mod;
+    // "!predict 1" / "!predict 2" is a viewer (or mod) trying to vote, not a new prediction.
+    const pv = text.match(/^!predict\s+([12])$/i);
+    if (pv) { if (pred.open) vote(m.id, pv[1] === '1'); return; }
     if (boss && text.startsWith('!')) return command(text.toLowerCase());
     if (pred.open && /^[12]$/.test(text)) { vote(m.id, text === '1'); return; }
     if (!m.owner && m.id && !seen.has(m.id)) {
@@ -235,8 +238,9 @@
   const pred = { open: false, votes: new Map(), until: 0, timer: 0 };
   function command(t) {
     const [cmd, arg] = t.split(/\s+/);
-    if (cmd === '!predict') openPred(+arg || 180);
+    if (cmd === '!predict') openPred(Math.max(30, +arg || 180));   // never shorter than 30 s
     else if (cmd === '!close') closePred();
+    else if (cmd === '!clear') { closePred(); pred.votes.clear(); $('pred').classList.remove('on'); }
     else if (cmd === '!win' || cmd === '!lose') resolvePred(cmd === '!win');
     else if (cmd === '!goal' && +arg > 0) { goal = +arg; drawGoal(); }
     else if (cmd === '!testsub' && subs != null) setSubs(subs + 1);   // test only: the next real check corrects the number
