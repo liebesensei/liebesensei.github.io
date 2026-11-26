@@ -59,6 +59,12 @@
   #pred .n { font-size:13px; opacity:.8; margin-top:5px; display:flex; justify-content:space-between; }
   #pred .res { font-size:20px; font-weight:900; text-align:center; margin-top:6px; display:none; }
 
+  #playqueue { right:12px; top:190px; width:270px; padding:10px 12px; display:none; font-size:16px; }
+  #playqueue.on { display:block; }
+  #playqueue strong { color:var(--gold); }
+  #playqueue .names { margin-top:6px; line-height:1.45; overflow-wrap:anywhere; }
+  .vert #playqueue { top:1050px; right:40px; width:500px; font-size:28px; }
+
   /* pop-ups */
   #pop { position:absolute; left:50%; transform:translateX(-50%); display:flex; flex-direction:column; align-items:center; gap:8px; pointer-events:none; }
   .toast { background:var(--void); border-radius:14px; padding:10px 22px 11px; text-align:center; box-shadow:0 0 0 2px var(--gold), 0 8px 26px rgba(0,0,0,.5); animation:pop .45s cubic-bezier(.2,1.4,.4,1) both; white-space:nowrap; }
@@ -112,6 +118,7 @@
     <div class="n"><span id="pn">0 votes</span><span id="pst">voting open</span></div>
     <div class="res" id="pres"></div>
   </div>
+  <div id="playqueue" class="box"><strong id="queuehead"></strong><div class="names" id="queuenames"></div></div>
   <div id="chat" class="box"></div>
   <div id="pop"></div>
   <div id="se"></div>
@@ -222,6 +229,8 @@
     const name = m.name.replace(/^@/, ''), text = (m.text || '').trim();
     const role = m.owner ? 'owner' : (m.mod ? 'mod' : '');
     const boss = m.owner || m.mod;
+    if (/^!join$/i.test(text)) { queueJoin(m.id, name); return; }
+    if (/^!leave$/i.test(text)) { queueLeave(m.id); return; }
     // "!predict 1" / "!predict 2" is a viewer (or mod) trying to vote, not a new prediction.
     const pv = text.match(/^!predict\s+([12])$/i);
     if (pv) { if (pred.open) vote(m.id, pv[1] === '1'); return; }
@@ -234,11 +243,40 @@
     if (text) chatLine(name, text, role);
   }
 
+  /* Play with Sensei: local to this browser, starts closed on reload. */
+  const playQueue = { open:false, visible:false, players:[] };
+  function drawQueue() {
+    $('playqueue').classList.toggle('on', playQueue.visible);
+    $('queuehead').textContent = `PLAY WITH SENSEI · ${playQueue.open ? 'OPEN' : 'CLOSED'} (${playQueue.players.length})`;
+    $('queuenames').textContent = playQueue.players.length ? playQueue.players.slice(0,5).map((p,i) => `${i+1}. ${p.name}`).join(' · ') : (playQueue.open ? 'Type !join to play' : 'Queue empty');
+  }
+  let queueHideTimer = 0;
+  function queueActivity() {
+    clearTimeout(queueHideTimer);
+    playQueue.visible = true; drawQueue();
+    queueHideTimer = setTimeout(() => { playQueue.visible = false; drawQueue(); }, 30000);
+  }
+  function queueJoin(id, name) {
+    if (!playQueue.open || !id || playQueue.players.some(p => p.id === id) || playQueue.players.length >= 100) return;
+    playQueue.players.push({id, name: String(name).slice(0,40)}); queueActivity();
+  }
+  function queueLeave(id) { const before = playQueue.players.length; playQueue.players = playQueue.players.filter(p => p.id !== id); if (playQueue.players.length !== before) queueActivity(); }
+  function queueCommand(arg) {
+    if (arg === 'open') { playQueue.open = true; queueActivity(); }
+    else if (arg === 'close') { playQueue.open = false; queueActivity(); }
+    else if (arg === 'next') {
+      if (playQueue.players.length) { const p = playQueue.players.shift(); toast('NEXT PLAYER', esc(p.name)); queueActivity(); }
+    }
+    else if (arg === 'reset') { clearTimeout(queueHideTimer); playQueue.open = false; playQueue.players = []; playQueue.visible = false; drawQueue(); }
+    else if (arg === 'show') queueActivity();
+    else if (arg === 'hide') { clearTimeout(queueHideTimer); playQueue.visible = false; drawQueue(); }
+  }
   /* ---------- prediction ---------- */
   const pred = { open: false, votes: new Map(), until: 0, timer: 0 };
   function command(t) {
     const [cmd, arg] = t.split(/\s+/);
-    if (cmd === '!predict') openPred(Math.max(30, +arg || 180));   // never shorter than 30 s
+    if (cmd === '!queue') queueCommand(arg);
+    else if (cmd === '!predict') openPred(Math.max(30, +arg || 180));   // never shorter than 30 s
     else if (cmd === '!close') closePred();
     else if (cmd === '!clear') { closePred(); clearTimeout(predHideT); pred.votes.clear(); $('pred').classList.remove('on'); }
     else if (cmd === '!win' || cmd === '!lose') resolvePred(cmd === '!win');
