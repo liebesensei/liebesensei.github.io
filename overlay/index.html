@@ -19,6 +19,9 @@
     !testsub            test: fake +1 subscriber (toast + chime); the next real check corrects it
     !countdown 5        start a 5-minute "starting soon" countdown now (chat reaches the page 30–50 s late)
     !start              hide the countdown immediately
+    !label HAAT TRYOUTS set the gold label above the countdown (kept after reload); !label off = default
+                        (default: "PEAK DAY N" until 28 Nov 2026, "RANKED • ROAD TO 120★" from 29 Nov)
+    !queue next 4       call the next 1–4 players from the !join queue into the party (team code); !queue done clears it
   &sound=0 mutes the subscriber chime.
   Starting-soon countdown (added 24 Nov 2026, PC 1): shows automatically in the 30 minutes before 7:00 PM IST and
   disappears at 7:00 ("LIVE NOW"). &cd=19:30 changes the time (IST), &cd=0 turns it off, &day=0 hides "PEAK DAY N",
@@ -63,7 +66,9 @@
   #playqueue.on { display:block; }
   #playqueue strong { color:var(--gold); }
   #playqueue .names { margin-top:6px; line-height:1.45; overflow-wrap:anywhere; }
-  .vert #playqueue { top:1050px; right:40px; width:500px; font-size:28px; }
+  #playqueue .party { margin-top:7px; padding-top:6px; border-top:1px solid rgba(255,198,26,.45); color:var(--green); font-weight:800; line-height:1.4; overflow-wrap:anywhere; }
+  .vert #playqueue { top:694px; right:40px; width:500px; font-size:28px; }   /* 28 Nov: moved up from 1050 px, it overlapped the chat box */
+  .vert.qon #pred { width:620px !important; }   /* queue showing: prediction box takes the left half, queue the right */
 
   /* pop-ups */
   #pop { position:absolute; left:50%; transform:translateX(-50%); display:flex; flex-direction:column; align-items:center; gap:8px; pointer-events:none; }
@@ -118,7 +123,7 @@
     <div class="n"><span id="pn">0 votes</span><span id="pst">voting open</span></div>
     <div class="res" id="pres"></div>
   </div>
-  <div id="playqueue" class="box"><strong id="queuehead"></strong><div class="names" id="queuenames"></div></div>
+  <div id="playqueue" class="box"><strong id="queuehead"></strong><div class="names" id="queuenames"></div><div class="party" id="queueparty" style="display:none"></div></div>
   <div id="chat" class="box"></div>
   <div id="pop"></div>
   <div id="se"></div>
@@ -234,6 +239,9 @@
     // "!predict 1" / "!predict 2" is a viewer (or mod) trying to vote, not a new prediction.
     const pv = text.match(/^!predict\s+([12])$/i);
     if (pv) { if (pred.open) vote(m.id, pv[1] === '1'); return; }
+    // !label keeps the owner's capitals: "!label HAAT TRYOUTS" sets the countdown label, "!label off" goes back to the default.
+    const lb = text.match(/^!label(?:\s+(.+))?$/i);
+    if (boss && lb) { const v = (lb[1] || '').trim(); store.set('ls_cdlabel', /^(off|reset|default)?$/i.test(v) ? '' : v.slice(0, 40)); drawLabel(); return; }
     if (boss && text.startsWith('!')) return command(text.toLowerCase());
     if (pred.open && /^[12]$/.test(text)) { vote(m.id, text === '1'); return; }
     if (!m.owner && m.id && !seen.has(m.id)) {
@@ -244,11 +252,15 @@
   }
 
   /* Play with Sensei: local to this browser, starts closed on reload. */
-  const playQueue = { open:false, visible:false, players:[] };
+  // party = the players called in with "!queue next N" (up to 4: the user plus 4 = a full 5-player team code party)
+  const playQueue = { open:false, visible:false, players:[], party:[] };
   function drawQueue() {
     $('playqueue').classList.toggle('on', playQueue.visible);
+    document.body.classList.toggle('qon', playQueue.visible);
     $('queuehead').textContent = `PLAY WITH SENSEI · ${playQueue.open ? 'OPEN' : 'CLOSED'} (${playQueue.players.length})`;
     $('queuenames').textContent = playQueue.players.length ? playQueue.players.slice(0,5).map((p,i) => `${i+1}. ${p.name}`).join(' · ') : (playQueue.open ? 'Type !join to play' : 'Queue empty');
+    $('queueparty').textContent = playQueue.party.length ? `IN THE PARTY: ${playQueue.party.join(' · ')}` : '';
+    $('queueparty').style.display = playQueue.party.length ? '' : 'none';
   }
   let queueHideTimer = 0;
   function queueActivity() {
@@ -261,22 +273,29 @@
     playQueue.players.push({id, name: String(name).slice(0,40)}); queueActivity();
   }
   function queueLeave(id) { const before = playQueue.players.length; playQueue.players = playQueue.players.filter(p => p.id !== id); if (playQueue.players.length !== before) queueActivity(); }
-  function queueCommand(arg) {
+  function queueCommand(arg, n) {
     if (arg === 'open') { playQueue.open = true; queueActivity(); }
     else if (arg === 'close') { playQueue.open = false; queueActivity(); }
-    else if (arg === 'next') {
-      if (playQueue.players.length) { const p = playQueue.players.shift(); toast('NEXT PLAYER', esc(p.name)); queueActivity(); }
+    else if (arg === 'next') {                  // "!queue next" = 1 player, "!queue next 4" = up to 4 (team code party)
+      const k = Math.min(4, Math.max(1, Math.floor(+n) || 1));
+      if (playQueue.players.length) {
+        const picked = playQueue.players.splice(0, k).map(p => p.name);
+        playQueue.party = picked;
+        toast(picked.length > 1 ? 'TEAM CODE: JOIN NOW' : 'NEXT PLAYER', esc(picked.join(' · ')));
+        queueActivity();
+      }
     }
-    else if (arg === 'reset') { clearTimeout(queueHideTimer); playQueue.open = false; playQueue.players = []; playQueue.visible = false; drawQueue(); }
+    else if (arg === 'done') { playQueue.party = []; queueActivity(); }   // the party game is over
+    else if (arg === 'reset') { clearTimeout(queueHideTimer); playQueue.open = false; playQueue.players = []; playQueue.party = []; playQueue.visible = false; drawQueue(); }
     else if (arg === 'show') queueActivity();
     else if (arg === 'hide') { clearTimeout(queueHideTimer); playQueue.visible = false; drawQueue(); }
   }
   /* ---------- prediction ---------- */
   const pred = { open: false, votes: new Map(), until: 0, timer: 0 };
   function command(t) {
-    const [cmd, arg] = t.split(/\s+/);
-    if (cmd === '!queue') queueCommand(arg);
-    else if (cmd === '!predict') openPred(Math.max(30, +arg || 180));   // never shorter than 30 s
+    const [cmd, arg, arg2] = t.split(/\s+/);
+    if (cmd === '!queue') queueCommand(arg, arg2);
+    else if (cmd === '!predict' && !pred.open) openPred(Math.max(30, +arg || 180));   // never shorter than 30 s
     else if (cmd === '!close') closePred();
     else if (cmd === '!clear') { closePred(); clearTimeout(predHideT); pred.votes.clear(); $('pred').classList.remove('on'); }
     else if (cmd === '!win' || cmd === '!lose') resolvePred(cmd === '!win');
@@ -300,10 +319,20 @@
     const d = Math.floor((Date.now() + IST - Date.UTC(2026, 10, 20)) / 86400000) + 1;
     return d >= 1 && d <= 400 ? d : 0;
   }
+  // Gold label above "STARTING SOON" (28 Nov 2026, PC 1). Order: !label from chat (owner/mod, kept after reload)
+  // > &label= in the URL > "PEAK DAY N" until 28 Nov > "RANKED • ROAD TO 120★" from 29 Nov (back to ranked). &day=0 hides it.
+  function cdLabel() {
+    if (P.get('day') === '0') return '';
+    const chatLabel = store.get('ls_cdlabel', '');
+    if (chatLabel) return chatLabel;
+    if (P.get('label')) return P.get('label').slice(0, 40);
+    if (Date.now() + IST < Date.UTC(2026, 10, 29)) { const d = peakDay(); return d ? `PEAK DAY ${d}` : ''; }
+    return 'RANKED • ROAD TO 120★';
+  }
+  function drawLabel() { const l = cdLabel(); $('cdday').textContent = l; $('cdday').style.display = l ? '' : 'none'; }
   function cdStart(until, manual) {
     cd.until = until; cd.manual = manual; cd.done = false;
-    const day = P.get('day') === '0' ? 0 : peakDay();
-    $('cdday').textContent = day ? `PEAK DAY ${day}` : ''; $('cdday').style.display = day ? '' : 'none';
+    drawLabel();
     $('cdlbl').textContent = 'STARTING SOON';
     const t = new Date(until + IST), hh = t.getUTCHours(), mm = t.getUTCMinutes();
     $('cdml').textContent = `${(hh % 12) || 12}${mm ? ':' + String(mm).padStart(2, '0') : ''} ${hh < 12 ? 'AM' : 'PM'}-ന് തുടങ്ങും 🔥`;
@@ -479,7 +508,7 @@
     setTimeout(() => setSubs(subs + 1), 12000);
   }
 
-  if (DEMO) demo();
+  if (DEMO) { window.__handle = handle; demo(); }   // demo only: tests can send chat lines with window.__handle({...})
   else if (!KEY) status('Add ?k=YOUR_API_KEY to the URL');
   else { pollSubs(); pollChat(); }
 })();
